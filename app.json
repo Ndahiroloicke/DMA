@@ -23,7 +23,11 @@
       "package": "com.lexitech.lexisearch",
       "permissions": [
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "web": {
@@ -32,6 +36,12 @@
     "plugins": [
       "expo-audio",
       "expo-asset"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "018ba5c0-835c-4b3b-8d6c-c7fbcba95ba5"
+      }
+    },
+    "owner": "loic6"
   }
 }
