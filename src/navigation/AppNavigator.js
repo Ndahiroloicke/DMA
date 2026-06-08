@@ -9,11 +9,13 @@ const Drawer = createDrawerNavigator();
 export default function AppNavigator() {
   return (
     <Drawer.Navigator
+      initialRouteName="Search"
       drawerContent={(props) => <DrawerContent {...props} />}
       screenOptions={{
         headerShown: false,
         drawerType: 'slide',
         overlayColor: 'rgba(0,0,0,0.5)',
+        lazy: true,
         drawerStyle: {
           width: 300,
         },

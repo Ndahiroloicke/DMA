@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   Animated,
 } from 'react-native';
-import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { searchWord } from '../services/apiService';
 import { useSearchHistory } from '../context/SearchHistoryContext';
 
@@ -184,6 +183,8 @@ export default function WordDetailScreen({ route, navigation }) {
 
   const handlePlayAudio = async (url) => {
     try {
+      const { createAudioPlayer, setAudioModeAsync } = await import('expo-audio');
+
       if (playerRef.current && currentAudioUrl === url) {
         if (playerRef.current.playing) {
           playerRef.current.pause();
