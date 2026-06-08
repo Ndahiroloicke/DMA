@@ -1,0 +1,253 @@
+%% ============================================================
+%% LexiSearch Dictionary App — Architecture & Data Flow
+%% Render with: https://mermaid.live or any Mermaid-compatible viewer
+%% ============================================================
+
+%% ------------------------------------------------------------
+%% 1. HIGH-LEVEL SYSTEM ARCHITECTURE
+%% ------------------------------------------------------------
+flowchart TB
+    subgraph Client["📱 Mobile Client (Expo / React Native)"]
+        direction TB
+
+        subgraph Presentation["Presentation Layer"]
+            SS["SearchScreen"]
+            WDS["WordDetailScreen"]
+            DC["DrawerContent"]
+        end
+
+        subgraph Navigation["Navigation Layer"]
+            AN["AppNavigator\n(Drawer Navigator)"]
+            NC["NavigationContainer"]
+        end
+
+        subgraph State["State Layer"]
+            SHC["SearchHistoryContext\n(in-memory history)"]
+        end
+
+        subgraph Services["Service Layer"]
+            API["apiService.js\n(axios client)"]
+        end
+
+        subgraph Native["Native Modules"]
+            EA["expo-audio\n(pronunciation playback)"]
+            GH["react-native-gesture-handler"]
+            RE["react-native-reanimated"]
+        end
+    end
+
+    subgraph External["External Services"]
+        FDA["Free Dictionary API\napi.dictionaryapi.dev"]
+    end
+
+    SS --> AN
+    WDS --> AN
+    DC --> AN
+    AN --> NC
+
+    SS --> SHC
+    WDS --> SHC
+    DC --> SHC
+
+    SS --> API
+    WDS --> API
+    WDS --> EA
+
+    API -->|"HTTP GET /entries/en/{word}"| FDA
+
+    AN --> GH
+    AN --> RE
+
+%% ------------------------------------------------------------
+%% 2. APPLICATION COMPONENT HIERARCHY
+%% ------------------------------------------------------------
+flowchart TD
+    App["App.js"]
+    GHR["GestureHandlerRootView"]
+    SHP["SearchHistoryProvider"]
+    NavC["NavigationContainer"]
+    Nav["AppNavigator"]
+
+    App --> GHR --> SHP --> NavC --> Nav
+
+    Nav --> Search["SearchScreen"]
+    Nav --> Detail["WordDetailScreen"]
+    Nav --> Drawer["DrawerContent\n(custom drawer sidebar)"]
+
+    Search -->|"useSearchHistory()"| Ctx["SearchHistoryContext"]
+    Detail -->|"useSearchHistory()"| Ctx
+    Drawer -->|"useSearchHistory()"| Ctx
+
+    Search --> Svc["apiService.searchWord()"]
+    Detail --> Svc
+    Detail --> Audio["expo-audio\ncreateAudioPlayer()"]
+
+    Svc --> ExtAPI["Free Dictionary API"]
+
+%% ------------------------------------------------------------
+%% 3. SEARCH DATA FLOW (Activity 1 & 2)
+%% ------------------------------------------------------------
+sequenceDiagram
+    autonumber
+    actor User
+    participant SS as SearchScreen
+    participant Val as Input Validator
+    participant API as apiService (axios)
+    participant FDA as Free Dictionary API
+    participant SHC as SearchHistoryContext
+    participant Nav as Drawer Navigator
+    participant WDS as WordDetailScreen
+
+    User->>SS: Enter word & tap Search
+    SS->>Val: validateInput(query)
+
+    alt Empty or invalid input
+        Val-->>SS: validation error
+        SS-->>User: Show inline error message
+    else Valid input
+        Val-->>SS: OK
+        SS->>SS: setLoading(true)
+        SS->>API: searchWord(trimmedWord)
+        API->>FDA: GET /api/v2/entries/en/{word}
+
+        alt Word found (200)
+            FDA-->>API: JSON (word, phonetics, meanings)
+            API-->>SS: parsed wordData[]
+            SS->>SHC: addToHistory(word)
+            SS->>Nav: navigate(WordDetail, { wordData, word, searchId })
+            Nav->>WDS: route params updated
+            WDS->>WDS: setWordData, render definitions
+            WDS-->>User: Display word, phonetics, meanings, examples
+        else Word not found (404)
+            FDA-->>API: 404 response
+            API-->>SS: Axios error
+            SS->>SS: setLoading(false)
+            SS-->>User: "Word not found" + Retry button
+        else Network failure
+            FDA-->>API: timeout / network error
+            API-->>SS: Axios error
+            SS-->>User: Network error + Retry button
+        end
+    end
+
+%% ------------------------------------------------------------
+%% 4. DRAWER & SEARCH HISTORY DATA FLOW (Activity 4)
+%% ------------------------------------------------------------
+sequenceDiagram
+    autonumber
+    actor User
+    participant SS as SearchScreen / WordDetailScreen
+    participant Nav as Drawer Navigator
+    participant DC as DrawerContent
+    participant SHC as SearchHistoryContext
+    participant API as apiService
+    participant WDS as WordDetailScreen
+
+    Note over SS,SHC: Successful searches call addToHistory(word)
+    SS->>SHC: addToHistory("serendipity")
+    SHC->>SHC: Normalize, deduplicate, prepend (max 50)
+
+    User->>SS: Swipe / tap menu icon
+    SS->>Nav: openDrawer()
+    Nav->>DC: Render drawer with history list
+    DC->>SHC: read history[]
+    SHC-->>DC: ["food", "serendipity", ...]
+    DC-->>User: Show search history
+
+    User->>DC: Tap history item "food"
+    DC->>Nav: navigate(WordDetail, { word, fromHistory: true, searchId })
+    Nav->>WDS: Focus WordDetail screen
+    WDS->>API: searchWord("food")
+    API-->>WDS: wordData[]
+    WDS->>SHC: addToHistory("food")
+    WDS-->>User: Refresh word detail view
+
+    opt Clear history
+        User->>DC: Tap Clear
+        DC->>SHC: clearHistory()
+        SHC-->>DC: history = []
+    end
+
+%% ------------------------------------------------------------
+%% 5. PRONUNCIATION AUDIO FLOW (Activity 3)
+%% ------------------------------------------------------------
+sequenceDiagram
+    autonumber
+    actor User
+    participant WDS as WordDetailScreen
+    participant Parse as Phonetics Parser
+    participant EA as expo-audio
+    participant CDN as Audio URL (API CDN)
+
+    WDS->>Parse: getAudioUrls(wordData)
+    Parse-->>WDS: audio URLs from phonetics[]
+
+    alt No audio URL available
+        WDS-->>User: Hide speaker button / show note
+    else Audio URL exists
+        WDS-->>User: Show speaker icon(s)
+        User->>WDS: Tap speaker icon
+        WDS->>EA: setAudioModeAsync({ playsInSilentMode })
+        WDS->>EA: createAudioPlayer(url)
+        EA->>CDN: Stream / download audio file
+        CDN-->>EA: MP3 audio data
+        EA-->>WDS: playbackStatusUpdate events
+        WDS-->>User: Play / pause / finished states
+    end
+
+%% ------------------------------------------------------------
+%% 6. ERROR HANDLING FLOW (Activity 5)
+%% ------------------------------------------------------------
+flowchart TD
+    Start([User submits search]) --> Validate{Input valid?}
+
+    Validate -->|No| ValErr["Show validation error\n(empty / invalid characters)"]
+    ValErr --> Start
+
+    Validate -->|Yes| Loading["Show loading indicator"]
+    Loading --> Request["axios GET request"]
+
+    Request --> Response{API response}
+
+    Response -->|200 OK| Success["Parse JSON → wordData"]
+    Success --> History["addToHistory()"]
+    History --> Navigate["Navigate to WordDetailScreen"]
+    Navigate --> Render["Render definitions & examples"]
+
+    Response -->|404| NotFound["Show: Word not found"]
+    Response -->|Network / timeout| NetErr["Show: No internet connection"]
+    Response -->|Other error| GenErr["Show: Something went wrong"]
+
+    NotFound --> Retry{User taps Retry?}
+    NetErr --> Retry
+    GenErr --> Retry
+
+    Retry -->|Yes| Loading
+    Retry -->|No| Start
+
+    Render --> Malformed{Malformed JSON?}
+    Malformed -->|Safe optional chaining| Render
+    Malformed -->|Missing fields| EmptyState["Show empty-state / fallback text"]
+
+%% ------------------------------------------------------------
+%% 7. NAVIGATION & SCREEN STATE FLOW
+%% ------------------------------------------------------------
+stateDiagram-v2
+    [*] --> SearchScreen
+
+    SearchScreen --> WordDetailScreen: navigate(WordDetail)\nwith wordData + searchId
+    WordDetailScreen --> SearchScreen: Back button\nnavigate(Search)
+
+    SearchScreen --> DrawerOpen: openDrawer()
+    WordDetailScreen --> DrawerOpen: openDrawer()
+    DrawerOpen --> SearchScreen: Tap Search nav item
+    DrawerOpen --> WordDetailScreen: Tap history word\n(fromHistory: true)
+
+    WordDetailScreen --> WordDetailScreen: Tap synonym / antonym\nnew searchId triggers reload
+
+    note right of WordDetailScreen
+        Drawer screens stay mounted.
+        searchId in route params
+        forces WordDetailScreen
+        to reload fresh data.
+    end note
