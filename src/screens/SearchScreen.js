@@ -1,3 +1,8 @@
+/**
+ * SEARCH SCREEN — Activity 1: user input, API call, loading & errors (Activity 5)
+ * Imports searchWord from apiService.js; on success navigates to WordDetail with JSON.
+ */
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
@@ -63,6 +68,12 @@ export default function SearchScreen({ navigation }) {
     ]).start();
   };
 
+  /**
+   * INPUT VALIDATION (Activity 1 — step 2)
+   * Runs BEFORE any API call so we never waste a network request on bad input.
+   * - Empty string → show inline message, shake animation
+   * - Invalid characters → only letters, spaces, hyphens, apostrophes allowed
+   */
   const validateInput = (text) => {
     const trimmed = text.trim();
     if (!trimmed) {
@@ -77,6 +88,22 @@ export default function SearchScreen({ navigation }) {
     return true;
   };
 
+  /**
+   * handleSearch — core search + API integration (Activity 1)
+   *
+   * Steps:
+   *   1. Validate input locally
+   *   2. setLoading(true) → shows ActivityIndicator on the Search button
+   *   3. searchWord() → axios GET to Free Dictionary API (see apiService.js)
+   *   4. On success:
+   *        - addToHistory() → drawer history list (Activity 4)
+   *        - navigation.navigate('WordDetail', { wordData, word, searchId })
+   *          Passes the full API JSON so WordDetailScreen can render immediately
+   *          without a second API call. searchId is a timestamp so re-searching
+   *          the same word still refreshes the detail screen.
+   *   5. On failure: map axios error to user-friendly messages (Activity 5)
+   *   6. finally: setLoading(false) — always hide spinner, success or error
+   */
   const handleSearch = async () => {
     Keyboard.dismiss();
     setError(null);
@@ -88,23 +115,32 @@ export default function SearchScreen({ navigation }) {
 
     setLoading(true);
     try {
+      // --- API CALL: returns parsed JSON array from Free Dictionary API ---
       const data = await searchWord(query.trim());
+
+      // Store word in drawer history after a successful API response
       addToHistory(query.trim());
+
+      // Navigate to detail screen WITH the fetched data (temporary in-memory storage)
       navigation.navigate('WordDetail', {
-        wordData: data,
-        word: query.trim(),
-        fromHistory: false,
-        searchId: Date.now(),
+        wordData: data,       // full API response — WordDetailScreen renders this
+        word: query.trim(),   // display name for header
+        fromHistory: false,   // false = data already included, no re-fetch needed
+        searchId: Date.now(), // unique id forces screen refresh on repeat searches
       });
       setQuery('');
     } catch (err) {
+      // --- ERROR HANDLING (Activity 5) ---
+      // axios puts HTTP status on err.response.status; network issues use err.code
       if (err.response?.status === 404) {
+        // API returns 404 when the word does not exist in the dictionary
         setError({
           type: 'not_found',
           message: `"${query.trim()}" was not found in the dictionary.`,
           suggestion: 'Check spelling or try a different word.',
         });
       } else if (err.code === 'ECONNABORTED' || err.message === 'Network Error') {
+        // Timeout from apiService (10s) or device has no internet
         setError({
           type: 'network',
           message: 'No internet connection.',
@@ -228,6 +264,7 @@ export default function SearchScreen({ navigation }) {
               <Text style={styles.validationError}>{validationError}</Text>
             ) : null}
 
+            {/* Activity 1 step 6 — spinner replaces "Search" text while axios is fetching */}
             <TouchableOpacity
               style={[styles.searchButton, loading && styles.searchButtonLoading]}
               onPress={handleSearch}
@@ -242,7 +279,7 @@ export default function SearchScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
-          {/* Error Card */}
+          {/* Activity 5 — error card when API returns 404, network fail, etc. */}
           {error && (
             <View
               style={[

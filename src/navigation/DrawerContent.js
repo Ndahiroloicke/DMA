@@ -17,6 +17,10 @@ export default function DrawerContent({ navigation, ...props }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
+  /**
+   * History tap — only passes the word string, NOT cached API data.
+   * WordDetailScreen sees fromHistory: true and calls fetchWord() → new API request.
+   */
   const handleWordPress = (word) => {
     navigation.navigate('WordDetail', {
       word,

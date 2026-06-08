@@ -1,3 +1,16 @@
+/**
+ * WORD DETAIL SCREEN — displays API JSON on screen (Activity 2)
+ * ------------------------------------------------------------
+ * Data arrives two ways:
+ *   A) From SearchScreen: route.params.wordData already contains the API array
+ *   B) From drawer history / synonym tap: only route.params.word → fetchWord() calls API again
+ *
+ * API array structure (each item is one dictionary entry):
+ *   wordData[0].word          → title in hero card
+ *   wordData[0].phonetics[]   → pronunciation text + audio URLs (Activity 3)
+ *   wordData[].meanings[]     → partOfSpeech, definitions[], synonyms, antonyms
+ */
+
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View,
@@ -17,11 +30,13 @@ import { useSearchHistory } from '../context/SearchHistoryContext';
 import { useTheme } from '../context/ThemeContext';
 import { getPartOfSpeechColor } from '../theme/colors';
 
+/** Some API audio URLs start with "//cdn..." — prepend https: so the player can fetch them. */
 const normalizeAudioUrl = (audio) => {
   if (!audio || !audio.trim()) return null;
   return audio.startsWith('http') ? audio : `https:${audio}`;
 };
 
+/** Parse region label from filename, e.g. ".../hello-uk.mp3" → "UK" shown as badge in UI. */
 const getRegionFromAudioUrl = (url) => {
   const match = url.match(/-([a-z]{2})\.mp3(?:\?|$)/i);
   return match ? match[1].toUpperCase() : null;
@@ -62,13 +77,18 @@ export default function WordDetailScreen({ route, navigation }) {
     }).start();
   }, [fadeAnim]);
 
+  /**
+   * fetchWord — second API path (when screen opens WITHOUT cached wordData).
+   * Used when user taps a word in drawer history or a synonym/antonym chip.
+   * Same searchWord() as SearchScreen; errors use the same 404/network mapping.
+   */
   const fetchWord = useCallback(async (word) => {
     setLoading(true);
     setError(null);
     setWordData(null);
     try {
       const data = await searchWord(word);
-      setWordData(data);
+      setWordData(data); // store API array in local state → triggers re-render of meanings UI
       addToHistory(word);
       animateIn();
     } catch (err) {
@@ -96,6 +116,15 @@ export default function WordDetailScreen({ route, navigation }) {
     }
   }, [addToHistory, animateIn]);
 
+  /**
+   * Route params effect — decides whether to USE passed data or FETCH from API.
+   *
+   * SearchScreen passes: { word, wordData, fromHistory: false, searchId }
+   * Drawer/history passes: { word, fromHistory: true, searchId } — no wordData
+   *
+   * searchId in the dependency array ensures a new search refreshes this screen
+   * even when React Navigation reuses the same mounted component.
+   */
   useEffect(() => {
     const params = route.params || {};
     const { word, wordData: incomingData, fromHistory: isFromHistory } = params;
@@ -110,9 +139,11 @@ export default function WordDetailScreen({ route, navigation }) {
     setError(null);
 
     if (isFromHistory && word && !incomingData) {
+      // Path B: history/synonym — only the word string; must call API
       setActiveWord(word);
       fetchWord(word);
     } else if (incomingData && word) {
+      // Path A: SearchScreen already fetched — display immediately, no API call
       setActiveWord(word);
       setWordData(incomingData);
       setLoading(false);
@@ -130,6 +161,16 @@ export default function WordDetailScreen({ route, navigation }) {
     };
   }, [releasePlayer]);
 
+  /**
+   * getAudioPhonetics — flatten API phonetics[] into rows for the hero card.
+   *
+   * Loops wordData (API returns an array; usually one entry) → entry.phonetics[]
+   * Each row: { url, text, region }
+   *   - text  → IPA string from API field "text" (e.g. "/juːˈbɪkwɪtəs/")
+   *   - url   → mp3 link from API field "audio"
+   *   - region → derived from URL suffix (-uk, -us) for the AU/UK/US badge
+   * Deduplicates by URL so the same mp3 is not shown twice.
+   */
   const getAudioPhonetics = useCallback(() => {
     if (!wordData) return [];
 
@@ -160,6 +201,7 @@ export default function WordDetailScreen({ route, navigation }) {
     }
   };
 
+  /** Tap synonym/antonym → navigate with fromHistory so we re-fetch that word from API. */
   const openRelatedWord = (relatedWord) => {
     navigation.navigate('WordDetail', {
       word: relatedWord,
@@ -168,6 +210,13 @@ export default function WordDetailScreen({ route, navigation }) {
     });
   };
 
+  /**
+   * handlePlayAudio — Activity 3: play pronunciation mp3 from API phonetics[].audio
+   *
+   * 1. Download remote mp3 to device cache (expo-asset) — required on mobile
+   * 2. createAudioPlayer with local URI
+   * 3. Listen for playbackStatusUpdate to update play/pause UI
+   */
   const handlePlayAudio = async (url) => {
     try {
       if (playerRef.current && currentAudioUrl === url) {
@@ -194,6 +243,7 @@ export default function WordDetailScreen({ route, navigation }) {
         // Audio mode setup is best-effort; playback can still work without it.
       }
 
+      // Download API audio URL before playback (remote URLs often fail without this step)
       const asset = Asset.fromURI(url);
       await asset.downloadAsync();
       const audioUri = asset.localUri || asset.uri;
@@ -230,6 +280,7 @@ export default function WordDetailScreen({ route, navigation }) {
     return '🔊';
   };
 
+  // --- Derive display values from API response (first entry is primary word) ---
   const entry = wordData?.[0];
   const word = entry?.word || activeWord;
   const audioPhonetics = getAudioPhonetics();
@@ -264,7 +315,7 @@ export default function WordDetailScreen({ route, navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Loading State */}
+      {/* Shown while fetchWord() is calling the API (history / synonym path) */}
       {loading && (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -300,12 +351,13 @@ export default function WordDetailScreen({ route, navigation }) {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Word Hero Card */}
+          {/* Hero card — word title + phonetics from API entry.phonetics[] */}
           <View style={styles.wordHeroCard}>
             <Text style={styles.wordTitle}>
               {word?.charAt(0).toUpperCase() + word?.slice(1)}
             </Text>
 
+            {/* Each row = one phonetic object: text (IPA), region badge, speaker button */}
             {audioPhonetics.length > 0 ? (
               <View style={styles.pronunciationList}>
                 {audioPhonetics.map((item) => {
@@ -374,13 +426,19 @@ export default function WordDetailScreen({ route, navigation }) {
             )}
           </View>
 
-          {/* Meanings */}
+          {/*
+            Meanings section — maps API structure to UI:
+              wordData[]           → outer loop (rarely more than one entry)
+              entry.meanings[]     → one card per part of speech (noun, verb, …)
+              meaning.definitions[]→ numbered list with definition + optional example
+              meaning.synonyms / antonyms → tappable chips (openRelatedWord re-fetches API)
+          */}
           {wordData.map((entry, entryIdx) =>
             entry.meanings?.map((meaning, mIdx) => {
               const posColor = getPartOfSpeechColor(meaning.partOfSpeech, colors);
               return (
                 <View key={`${entryIdx}-${mIdx}`} style={styles.meaningCard}>
-                  {/* Part of Speech Badge */}
+                  {/* API field: meaning.partOfSpeech → colored badge */}
                   <View
                     style={[
                       styles.posBadge,
@@ -392,7 +450,7 @@ export default function WordDetailScreen({ route, navigation }) {
                     </Text>
                   </View>
 
-                  {/* Definitions */}
+                  {/* API field: meaning.definitions[] → definition text + example + inline synonyms */}
                   {meaning.definitions?.map((def, dIdx) => (
                     <View key={dIdx} style={styles.definitionItem}>
                       <View style={styles.defNumberContainer}>
@@ -421,7 +479,7 @@ export default function WordDetailScreen({ route, navigation }) {
                     </View>
                   ))}
 
-                  {/* Meaning-level synonyms */}
+                  {/* API field: meaning.synonyms[] at meaning level (not per-definition) */}
                   {meaning.synonyms?.length > 0 && (
                     <View style={styles.tagsSection}>
                       <Text style={styles.tagsLabel}>Synonyms</Text>
@@ -440,7 +498,7 @@ export default function WordDetailScreen({ route, navigation }) {
                     </View>
                   )}
 
-                  {/* Antonyms */}
+                  {/* API field: meaning.antonyms[] */}
                   {meaning.antonyms?.length > 0 && (
                     <View style={styles.tagsSection}>
                       <Text style={styles.tagsLabel}>Antonyms</Text>
