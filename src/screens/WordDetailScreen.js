@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,45 +14,22 @@ import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { Asset } from 'expo-asset';
 import { searchWord } from '../services/apiService';
 import { useSearchHistory } from '../context/SearchHistoryContext';
+import { useTheme } from '../context/ThemeContext';
+import { getPartOfSpeechColor } from '../theme/colors';
 
-const COLORS = {
-  primary: '#1A73E8',
-  primaryDark: '#0D47A1',
-  primaryLight: '#E8F0FE',
-  background: '#F8F9FF',
-  surface: '#FFFFFF',
-  text: '#1C1C1E',
-  textSecondary: '#6E6E73',
-  border: '#E5E5EA',
-  error: '#D32F2F',
-  errorBg: '#FFEBEE',
-  success: '#2E7D32',
-  successBg: '#E8F5E9',
-  noun: '#1565C0',
-  nounBg: '#E3F2FD',
-  verb: '#6A1B9A',
-  verbBg: '#F3E5F5',
-  adjective: '#E65100',
-  adjectiveBg: '#FFF3E0',
-  adverb: '#2E7D32',
-  adverbBg: '#E8F5E9',
-  other: '#37474F',
-  otherBg: '#ECEFF1',
+const normalizeAudioUrl = (audio) => {
+  if (!audio || !audio.trim()) return null;
+  return audio.startsWith('http') ? audio : `https:${audio}`;
 };
 
-const PART_OF_SPEECH_COLORS = {
-  noun: { text: COLORS.noun, bg: COLORS.nounBg },
-  verb: { text: COLORS.verb, bg: COLORS.verbBg },
-  adjective: { text: COLORS.adjective, bg: COLORS.adjectiveBg },
-  adverb: { text: COLORS.adverb, bg: COLORS.adverbBg },
-};
-
-const getPoSColor = (pos) => {
-  const key = pos?.toLowerCase();
-  return PART_OF_SPEECH_COLORS[key] || { text: COLORS.other, bg: COLORS.otherBg };
+const getRegionFromAudioUrl = (url) => {
+  const match = url.match(/-([a-z]{2})\.mp3(?:\?|$)/i);
+  return match ? match[1].toUpperCase() : null;
 };
 
 export default function WordDetailScreen({ route, navigation }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [wordData, setWordData] = useState(null);
   const [activeWord, setActiveWord] = useState('');
   const [loading, setLoading] = useState(false);
@@ -153,20 +130,28 @@ export default function WordDetailScreen({ route, navigation }) {
     };
   }, [releasePlayer]);
 
-  const getAudioUrls = useCallback(() => {
+  const getAudioPhonetics = useCallback(() => {
     if (!wordData) return [];
-    const urls = [];
+
+    const items = [];
+    const seen = new Set();
+
     for (const entry of wordData) {
-      if (entry.phonetics) {
-        for (const ph of entry.phonetics) {
-          if (ph.audio && ph.audio.trim() !== '') {
-            const url = ph.audio.startsWith('http') ? ph.audio : `https:${ph.audio}`;
-            if (!urls.includes(url)) urls.push(url);
-          }
-        }
+      if (!entry.phonetics) continue;
+
+      for (const ph of entry.phonetics) {
+        const url = normalizeAudioUrl(ph.audio);
+        if (!url || seen.has(url)) continue;
+
+        seen.add(url);
+        const region = getRegionFromAudioUrl(url);
+        const text = ph.text?.trim() || '';
+
+        items.push({ url, text, region });
       }
     }
-    return urls;
+
+    return items;
   }, [wordData]);
 
   const handleRetry = () => {
@@ -247,13 +232,12 @@ export default function WordDetailScreen({ route, navigation }) {
 
   const entry = wordData?.[0];
   const word = entry?.word || activeWord;
-  const phonetics = entry?.phonetics || [];
-  const phonetic = phonetics.find((p) => p.text)?.text || entry?.phonetic || '';
-  const audioUrls = getAudioUrls();
+  const audioPhonetics = getAudioPhonetics();
+  const activePhonetic = audioPhonetics.find((item) => item.url === currentAudioUrl);
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+      <StatusBar barStyle={colors.statusBar} backgroundColor={colors.primary} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -283,7 +267,7 @@ export default function WordDetailScreen({ route, navigation }) {
       {/* Loading State */}
       {loading && (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
+          <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Looking up "{activeWord}"...</Text>
         </View>
       )}
@@ -318,40 +302,62 @@ export default function WordDetailScreen({ route, navigation }) {
         >
           {/* Word Hero Card */}
           <View style={styles.wordHeroCard}>
-            <View style={styles.wordRow}>
-              <Text style={styles.wordTitle}>
-                {word?.charAt(0).toUpperCase() + word?.slice(1)}
-              </Text>
-              {audioUrls.length > 0 && (
-                <View style={styles.audioButtons}>
-                  {audioUrls.slice(0, 3).map((url, i) => (
+            <Text style={styles.wordTitle}>
+              {word?.charAt(0).toUpperCase() + word?.slice(1)}
+            </Text>
+
+            {audioPhonetics.length > 0 ? (
+              <View style={styles.pronunciationList}>
+                {audioPhonetics.map((item) => {
+                  const isActive = currentAudioUrl === item.url;
+                  const isPlaying = isActive && audioState === 'playing';
+                  const isLoading = isActive && audioState === 'loading';
+
+                  return (
                     <TouchableOpacity
-                      key={i}
+                      key={item.url}
                       style={[
-                        styles.audioButton,
-                        currentAudioUrl === url && audioState === 'playing' && styles.audioButtonActive,
-                        audioState === 'error' && currentAudioUrl === url && styles.audioButtonError,
+                        styles.pronunciationRow,
+                        isPlaying && styles.pronunciationRowActive,
+                        isActive && audioState === 'error' && styles.pronunciationRowError,
                       ]}
-                      onPress={() => handlePlayAudio(url)}
+                      onPress={() => handlePlayAudio(item.url)}
                       activeOpacity={0.75}
-                      disabled={audioState === 'loading' && currentAudioUrl !== url}
+                      disabled={audioState === 'loading' && !isActive}
                     >
-                      {audioState === 'loading' && currentAudioUrl === url ? (
-                        <ActivityIndicator size="small" color={COLORS.primary} />
-                      ) : (
-                        <Text style={styles.audioIcon}>{getAudioButtonIcon(url)}</Text>
-                      )}
+                      <View style={styles.pronunciationTextWrap}>
+                        {item.text ? (
+                          <Text style={styles.pronunciationText}>{item.text}</Text>
+                        ) : (
+                          <Text style={styles.pronunciationFallback}>
+                            {item.region ? `${item.region} pronunciation` : 'Pronunciation'}
+                          </Text>
+                        )}
+                        {item.region ? (
+                          <View style={styles.regionBadge}>
+                            <Text style={styles.regionBadgeText}>{item.region}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+
+                      <View
+                        style={[
+                          styles.audioButton,
+                          isPlaying && styles.audioButtonActive,
+                          isActive && audioState === 'error' && styles.audioButtonError,
+                        ]}
+                      >
+                        {isLoading ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.audioIcon}>{getAudioButtonIcon(item.url)}</Text>
+                        )}
+                      </View>
                     </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </View>
-
-            {phonetic ? (
-              <Text style={styles.phonetic}>{phonetic}</Text>
-            ) : null}
-
-            {audioUrls.length === 0 && (
+                  );
+                })}
+              </View>
+            ) : (
               <Text style={styles.noAudioNote}>No audio pronunciation available</Text>
             )}
 
@@ -359,9 +365,11 @@ export default function WordDetailScreen({ route, navigation }) {
               <Text style={styles.audioErrorNote}>⚠️ Could not play audio</Text>
             )}
 
-            {audioState === 'playing' && (
+            {audioState === 'playing' && activePhonetic && (
               <View style={styles.playingBadge}>
-                <Text style={styles.playingText}>🎵 Playing...</Text>
+                <Text style={styles.playingText}>
+                  🎵 Playing{activePhonetic.text ? `: ${activePhonetic.text}` : activePhonetic.region ? ` (${activePhonetic.region})` : '...'}
+                </Text>
               </View>
             )}
           </View>
@@ -369,7 +377,7 @@ export default function WordDetailScreen({ route, navigation }) {
           {/* Meanings */}
           {wordData.map((entry, entryIdx) =>
             entry.meanings?.map((meaning, mIdx) => {
-              const posColor = getPoSColor(meaning.partOfSpeech);
+              const posColor = getPartOfSpeechColor(meaning.partOfSpeech, colors);
               return (
                 <View key={`${entryIdx}-${mIdx}`} style={styles.meaningCard}>
                   {/* Part of Speech Badge */}
@@ -474,13 +482,14 @@ export default function WordDetailScreen({ route, navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) =>
+  StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: colors.background,
   },
   header: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.primary,
     paddingTop: Platform.OS === 'ios' ? 50 : StatusBar.currentHeight + 10,
     paddingBottom: 14,
     paddingHorizontal: 16,
@@ -532,7 +541,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 15,
-    color: COLORS.textSecondary,
+    color: colors.textSecondary,
     fontStyle: 'italic',
   },
   errorEmoji: {
@@ -542,18 +551,18 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: COLORS.error,
+    color: colors.error,
     textAlign: 'center',
     marginBottom: 8,
   },
   errorSuggestion: {
     fontSize: 14,
-    color: COLORS.textSecondary,
+    color: colors.textSecondary,
     textAlign: 'center',
     marginBottom: 24,
   },
   retryBtn: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.primary,
     paddingHorizontal: 32,
     paddingVertical: 14,
     borderRadius: 14,
@@ -571,12 +580,12 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: COLORS.primary,
+    borderColor: colors.primary,
     width: '100%',
     alignItems: 'center',
   },
   goBackBtnText: {
-    color: COLORS.primary,
+    color: colors.primary,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -588,33 +597,75 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   wordHeroCard: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.primary,
     borderRadius: 20,
     padding: 24,
     marginBottom: 16,
-    shadowColor: COLORS.primary,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.3,
     shadowRadius: 12,
     elevation: 6,
   },
-  wordRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
   wordTitle: {
     fontSize: 32,
     fontWeight: '800',
     color: '#FFFFFF',
-    flex: 1,
     letterSpacing: 0.5,
+    marginBottom: 12,
   },
-  audioButtons: {
-    flexDirection: 'row',
+  pronunciationList: {
     gap: 8,
-    marginLeft: 12,
+    marginTop: 4,
+  },
+  pronunciationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.2)',
+    gap: 12,
+  },
+  pronunciationRowActive: {
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    borderColor: '#FFFFFF',
+  },
+  pronunciationRowError: {
+    borderColor: '#EF9A9A',
+  },
+  pronunciationTextWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  pronunciationText: {
+    fontSize: 17,
+    color: 'rgba(255,255,255,0.92)',
+    fontStyle: 'italic',
+    flexShrink: 1,
+  },
+  pronunciationFallback: {
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.85)',
+    fontWeight: '600',
+  },
+  regionBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  regionBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
   audioButton: {
     width: 44,
@@ -625,6 +676,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.4)',
+    flexShrink: 0,
   },
   audioButtonActive: {
     backgroundColor: 'rgba(255,255,255,0.35)',
@@ -636,12 +688,6 @@ const styles = StyleSheet.create({
   },
   audioIcon: {
     fontSize: 18,
-  },
-  phonetic: {
-    fontSize: 18,
-    color: 'rgba(255,255,255,0.85)',
-    fontStyle: 'italic',
-    marginTop: 4,
   },
   noAudioNote: {
     fontSize: 12,
@@ -667,11 +713,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   meaningCard: {
-    backgroundColor: COLORS.surface,
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 18,
     marginBottom: 12,
-    shadowColor: '#000',
+    shadowColor: colors.cardShadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
@@ -699,7 +745,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: COLORS.background,
+    backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 2,
@@ -714,29 +760,29 @@ const styles = StyleSheet.create({
   },
   defText: {
     fontSize: 15,
-    color: COLORS.text,
+    color: colors.text,
     lineHeight: 23,
     fontWeight: '400',
   },
   exampleContainer: {
     flexDirection: 'row',
     marginTop: 8,
-    backgroundColor: '#F8F9FF',
+    backgroundColor: colors.exampleBackground,
     borderRadius: 10,
     padding: 10,
     borderLeftWidth: 3,
-    borderLeftColor: COLORS.primary,
+    borderLeftColor: colors.primary,
     flexWrap: 'wrap',
   },
   exampleQuote: {
     fontSize: 18,
-    color: COLORS.primary,
+    color: colors.primary,
     lineHeight: 20,
     fontWeight: '700',
   },
   exampleText: {
     fontSize: 13,
-    color: COLORS.textSecondary,
+    color: colors.textSecondary,
     fontStyle: 'italic',
     lineHeight: 20,
     flex: 1,
@@ -749,24 +795,24 @@ const styles = StyleSheet.create({
   },
   synonymsLabel: {
     fontSize: 12,
-    color: COLORS.textSecondary,
+    color: colors.textSecondary,
     fontWeight: '700',
   },
   synonymsText: {
     fontSize: 12,
-    color: COLORS.primary,
+    color: colors.primary,
     flex: 1,
   },
   tagsSection: {
     marginTop: 12,
     borderTopWidth: 1,
-    borderTopColor: COLORS.border,
+    borderTopColor: colors.border,
     paddingTop: 12,
   },
   tagsLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: COLORS.textSecondary,
+    color: colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 8,
@@ -788,13 +834,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   antonymTag: {
-    borderColor: COLORS.error,
+    borderColor: colors.error,
   },
   antonymTagText: {
-    color: COLORS.error,
+    color: colors.error,
   },
   sourceCard: {
-    backgroundColor: COLORS.surface,
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 14,
     marginBottom: 8,
@@ -802,14 +848,14 @@ const styles = StyleSheet.create({
   sourceLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: COLORS.textSecondary,
+    color: colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 6,
   },
   sourceUrl: {
     fontSize: 12,
-    color: COLORS.primary,
+    color: colors.primary,
     textDecorationLine: 'underline',
   },
   bottomSpacer: {

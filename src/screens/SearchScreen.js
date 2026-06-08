@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,24 +14,11 @@ import {
 } from 'react-native';
 import { searchWord } from '../services/apiService';
 import { useSearchHistory } from '../context/SearchHistoryContext';
-
-const COLORS = {
-  primary: '#1A73E8',
-  primaryDark: '#0D47A1',
-  primaryLight: '#E8F0FE',
-  background: '#F8F9FF',
-  surface: '#FFFFFF',
-  text: '#1C1C1E',
-  textSecondary: '#6E6E73',
-  border: '#E0E0E0',
-  error: '#D32F2F',
-  errorBg: '#FFEBEE',
-  inputBorder: '#DADCE0',
-  inputFocusBorder: '#1A73E8',
-  placeholder: '#ABABAB',
-};
+import { useTheme } from '../context/ThemeContext';
 
 export default function SearchScreen({ navigation }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -152,7 +139,7 @@ export default function SearchScreen({ navigation }) {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+      <StatusBar barStyle={colors.statusBar} backgroundColor={colors.primary} />
 
       {/* Top header bar */}
       <View style={styles.header}>
@@ -210,7 +197,7 @@ export default function SearchScreen({ navigation }) {
                 ref={inputRef}
                 style={styles.input}
                 placeholder="e.g. serendipity, eloquent..."
-                placeholderTextColor={COLORS.placeholder}
+                placeholderTextColor={colors.placeholder}
                 value={query}
                 onChangeText={handleChangeText}
                 onSubmitEditing={handleSearch}
@@ -311,16 +298,17 @@ export default function SearchScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) =>
+  StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: colors.background,
   },
   flex: {
     flex: 1,
   },
   header: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.primary,
     paddingTop: Platform.OS === 'ios' ? 50 : StatusBar.currentHeight + 10,
     paddingBottom: 14,
     paddingHorizontal: 20,
@@ -368,21 +356,21 @@ const styles = StyleSheet.create({
   heroTitle: {
     fontSize: 30,
     fontWeight: '800',
-    color: COLORS.primaryDark,
+    color: colors.primaryDark,
     letterSpacing: 0.5,
     marginBottom: 8,
   },
   heroSubtitle: {
     fontSize: 14,
-    color: COLORS.textSecondary,
+    color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 20,
   },
   searchCard: {
-    backgroundColor: COLORS.surface,
+    backgroundColor: colors.surface,
     borderRadius: 20,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: colors.cardShadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
@@ -392,7 +380,7 @@ const styles = StyleSheet.create({
   searchLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: COLORS.textSecondary,
+    color: colors.textSecondary,
     marginBottom: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
@@ -401,26 +389,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: COLORS.inputBorder,
+    borderColor: colors.inputBorder,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: Platform.OS === 'ios' ? 14 : 10,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: colors.inputBackground,
     gap: 10,
     marginBottom: 4,
   },
   inputRowFocused: {
-    borderColor: COLORS.inputFocusBorder,
-    backgroundColor: '#FFFFFF',
-    shadowColor: COLORS.primary,
+    borderColor: colors.inputFocusBorder,
+    backgroundColor: colors.inputFocusedBackground,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.15,
     shadowRadius: 6,
     elevation: 2,
   },
   inputRowError: {
-    borderColor: COLORS.error,
-    backgroundColor: '#FFF8F8',
+    borderColor: colors.error,
+    backgroundColor: colors.inputErrorBackground,
   },
   inputIcon: {
     fontSize: 16,
@@ -428,35 +416,35 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 16,
-    color: COLORS.text,
+    color: colors.text,
     padding: 0,
     fontWeight: '400',
   },
   clearIcon: {
     fontSize: 14,
-    color: COLORS.textSecondary,
+    color: colors.textSecondary,
     fontWeight: '600',
   },
   validationError: {
     fontSize: 12,
-    color: COLORS.error,
+    color: colors.error,
     marginBottom: 10,
     marginLeft: 4,
   },
   searchButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.primary,
     borderRadius: 14,
     paddingVertical: 15,
     alignItems: 'center',
     marginTop: 10,
-    shadowColor: COLORS.primary,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
   },
   searchButtonLoading: {
-    backgroundColor: COLORS.primaryDark,
+    backgroundColor: colors.primaryDark,
     opacity: 0.85,
   },
   searchButtonText: {
@@ -466,7 +454,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   errorCard: {
-    backgroundColor: COLORS.errorBg,
+    backgroundColor: colors.errorBg,
     borderRadius: 16,
     padding: 16,
     flexDirection: 'row',
@@ -474,11 +462,11 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 16,
     borderLeftWidth: 4,
-    borderLeftColor: COLORS.error,
+    borderLeftColor: colors.error,
   },
   errorCardNetwork: {
-    backgroundColor: '#FFF3E0',
-    borderLeftColor: '#E65100',
+    backgroundColor: colors.networkErrorBg,
+    borderLeftColor: colors.networkErrorBorder,
   },
   errorEmoji: {
     fontSize: 24,
@@ -489,16 +477,16 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: COLORS.error,
+    color: colors.error,
     marginBottom: 2,
   },
   errorSuggestion: {
     fontSize: 12,
-    color: '#B71C1C',
+    color: colors.errorText,
     opacity: 0.8,
   },
   retryButton: {
-    backgroundColor: COLORS.error,
+    backgroundColor: colors.error,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 10,
@@ -514,7 +502,7 @@ const styles = StyleSheet.create({
   tipsTitle: {
     fontSize: 12,
     fontWeight: '600',
-    color: COLORS.textSecondary,
+    color: colors.textSecondary,
     marginBottom: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
@@ -525,16 +513,16 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   tipChip: {
-    backgroundColor: COLORS.primaryLight,
+    backgroundColor: colors.primaryLight,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#C5D8FB',
+    borderColor: colors.chipBorder,
   },
   tipText: {
     fontSize: 13,
-    color: COLORS.primary,
+    color: colors.primary,
     fontWeight: '500',
   },
 });
