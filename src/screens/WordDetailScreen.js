@@ -10,6 +10,8 @@ import {
   ActivityIndicator,
   Animated,
 } from 'react-native';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { Asset } from 'expo-asset';
 import { searchWord } from '../services/apiService';
 import { useSearchHistory } from '../context/SearchHistoryContext';
 
@@ -183,8 +185,6 @@ export default function WordDetailScreen({ route, navigation }) {
 
   const handlePlayAudio = async (url) => {
     try {
-      const { createAudioPlayer, setAudioModeAsync } = await import('expo-audio');
-
       if (playerRef.current && currentAudioUrl === url) {
         if (playerRef.current.playing) {
           playerRef.current.pause();
@@ -200,12 +200,20 @@ export default function WordDetailScreen({ route, navigation }) {
       setAudioState('loading');
       setCurrentAudioUrl(url);
 
-      await setAudioModeAsync({
-        playsInSilentMode: true,
-        interruptionMode: 'duckOthers',
-      });
+      try {
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          interruptionMode: 'duckOthers',
+        });
+      } catch {
+        // Audio mode setup is best-effort; playback can still work without it.
+      }
 
-      const player = createAudioPlayer(url, { downloadFirst: true });
+      const asset = Asset.fromURI(url);
+      await asset.downloadAsync();
+      const audioUri = asset.localUri || asset.uri;
+
+      const player = createAudioPlayer({ uri: audioUri });
       playerRef.current = player;
 
       listenerRef.current = player.addListener('playbackStatusUpdate', (status) => {
@@ -219,6 +227,7 @@ export default function WordDetailScreen({ route, navigation }) {
       });
 
       player.play();
+      setAudioState('playing');
     } catch (e) {
       releasePlayer();
       setAudioState('error');
