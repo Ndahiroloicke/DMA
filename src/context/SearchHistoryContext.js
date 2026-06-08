@@ -1,0 +1,31 @@
+import React, { createContext, useContext, useState, useCallback } from 'react';
+
+const SearchHistoryContext = createContext(null);
+
+export const SearchHistoryProvider = ({ children }) => {
+  const [history, setHistory] = useState([]);
+
+  const addToHistory = useCallback((word) => {
+    const normalized = word.trim().toLowerCase();
+    setHistory((prev) => {
+      if (prev.includes(normalized)) return prev;
+      return [normalized, ...prev].slice(0, 50);
+    });
+  }, []);
+
+  const clearHistory = useCallback(() => {
+    setHistory([]);
+  }, []);
+
+  return (
+    <SearchHistoryContext.Provider value={{ history, addToHistory, clearHistory }}>
+      {children}
+    </SearchHistoryContext.Provider>
+  );
+};
+
+export const useSearchHistory = () => {
+  const ctx = useContext(SearchHistoryContext);
+  if (!ctx) throw new Error('useSearchHistory must be used within SearchHistoryProvider');
+  return ctx;
+};
